@@ -69,6 +69,13 @@ def main():
   
   # 두 모델 비교
   python scripts/run_evaluation.py --config configs/default_config.py --dynamic_checkpoint dynamic.pth --static_checkpoint static.pth --model_type both
+
+  # 다른 데이터셋으로 평가 (일반화 성능 테스트)
+  python scripts/run_evaluation.py --config configs/default_config.py --dynamic_checkpoint dynamic.pth --model_type dynamic --data_path data/other_datasets/nuscenes_mini
+  
+  # 여러 환경에서 모델 평가
+  python scripts/run_evaluation.py --config configs/default_config.py --dynamic_checkpoint dynamic.pth --model_type dynamic --data_path data/other_datasets/cadc_winter --output output/eval_winter.json
+  python scripts/run_evaluation.py --config configs/default_config.py --dynamic_checkpoint dynamic.pth --model_type dynamic --data_path data/other_datasets/oxford_robotcar --output output/eval_rainy.json
         """
     )
     parser.add_argument('--config', type=str, required=True, help="Path to config file")
@@ -83,6 +90,8 @@ def main():
                         help="Dataset split to evaluate on")
     parser.add_argument('--use_dummy_data', action='store_true',
                         help="Use dummy data for testing when KITTI dataset is not available")
+    parser.add_argument('--data_path', type=str, default=None,
+                        help="Override data path from config (useful for testing different datasets)")
     
     args = parser.parse_args()
     
@@ -97,8 +106,17 @@ def main():
         config = load_config(args.config)
         logger.info("✅ Configuration loaded successfully")
         
+        # 데이터 경로 override 처리
+        if args.data_path:
+            logger.info(f"🔄 Overriding data path: {args.data_path}")
+            if not os.path.exists(args.data_path):
+                logger.error(f"❌ Specified data path does not exist: {args.data_path}")
+                return 1
+            config['data']['path'] = args.data_path
+            logger.info(f"✅ Data path updated to: {config['data']['path']}")
+        
         # Load dataset
-        logger.info(f"📊 Loading KITTI dataset ({args.split} split)")
+        logger.info(f"📊 Loading dataset from: {config['data']['path']} ({args.split} split)")
         try:
             dataset = KITTIDataset(config, split=args.split, create_dummy_data=args.use_dummy_data)
             logger.info(f"✅ Dataset loaded: {len(dataset)} samples")
