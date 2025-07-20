@@ -16,8 +16,9 @@ from tqdm import tqdm
 from ..models.ssd_nerf import SSD_NeRF as DynamicSSDNeRF  
 from ..model_arch.ssd_nerf_model import SSDNeRF as StaticSSDNeRF
 from ..data.dataset import KITTIDataset
-from ..training.renderer import volume_render, sample_along_rays
-from ..utils.ray_utils import get_rays
+from ..training.renderer import volume_render
+# ✅ rays.py 사용으로 변경
+from ..utils.rays import get_rays, sample_points_on_rays
 
 def calculate_iou_3d(box1, box2):
     """
@@ -250,13 +251,28 @@ class SSDNeRFBenchmark:
         
         B, C, H, W = images.shape
         
-        # Camera parameters
-        focal = 721.5  # KITTI default
-        c2w = torch.eye(4).to(self.device)
+        # ✅ 개선된 Camera parameters 처리
+        # dataset에서 focal과 c2w 가져오기
+        if 'focal' in batch:
+            focal = batch['focal'][0].item()
+        else:
+            focal = 721.5377  # KITTI default fallback
+        
+        if 'camera_to_world' in batch:
+            c2w = batch['camera_to_world'][0]
+            # c2w 차원 처리
+            if c2w.shape == (4, 4):
+                c2w_processed = c2w[:3, :4]  # 4x4 -> 3x4
+            else:
+                c2w_processed = c2w  # 이미 3x4
+        else:
+            # Fallback to identity
+            c2w_processed = torch.eye(3, 4, dtype=torch.float32)
+        
+        c2w_processed = c2w_processed.to(self.device)
         
         # Generate rays (subsampled for evaluation speed)
-        rays_o, rays_d = get_rays(H, W, focal, c2w)
-        rays_o, rays_d = rays_o.to(self.device), rays_d.to(self.device)
+        rays_o, rays_d = get_rays(H, W, focal, c2w_processed)
         
         # Subsample for speed
         num_rays = min(2048, rays_o.shape[0])
@@ -264,8 +280,16 @@ class SSDNeRFBenchmark:
         rays_o_sub = rays_o[ray_indices]
         rays_d_sub = rays_d[ray_indices]
         
-        # Sample points
-        pts, z_vals = sample_along_rays(rays_o_sub, rays_d_sub, 0.5, 50.0, 64)
+        # ✅ rays.py의 sample_points_on_rays 사용 (named parameters)
+        pts, z_vals = sample_points_on_rays(
+            rays_o=rays_o_sub, 
+            rays_d=rays_d_sub, 
+            near=0.5, 
+            far=50.0, 
+            n_samples=64,
+            perturb=False,  # evaluation에서는 deterministic
+            l_disp=True     # disparity space sampling
+        )
         pts_batch = pts.unsqueeze(0)
         view_dirs_batch = rays_d_sub.unsqueeze(0)
         

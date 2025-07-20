@@ -391,3 +391,83 @@ class Predictor(SSDNeRFPredictor):
             predictions.append(pred)
         
         return predictions
+
+
+if __name__ == '__main__':
+    """
+    Predictor 직접 실행 테스트
+    """
+    import argparse
+    
+    print("🔮 === SSD-NeRF Predictor 테스트 ===")
+    
+    parser = argparse.ArgumentParser(description="SSD-NeRF Predictor 직접 실행")
+    parser.add_argument('--config', type=str, default='configs/default_config.py', help="설정 파일 경로")
+    parser.add_argument('--checkpoint', type=str, help="체크포인트 파일 경로")
+    parser.add_argument('--model-type', type=str, default='dynamic', choices=['dynamic', 'static'])
+    parser.add_argument('--test-mode', type=str, default='dummy', choices=['dummy', 'sample'], help="테스트 모드")
+    
+    args = parser.parse_args()
+    
+    try:
+        # Config 로드 테스트
+        print(f"📋 설정 파일 로드: {args.config}")
+        
+        # Import 경로 처리 (직접 실행 시)
+        import sys
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+        if project_root not in sys.path:
+            sys.path.insert(0, project_root)
+        
+        from src.utils.config_utils import load_config
+        config = load_config(args.config)
+        print("✅ Config 로드 성공!")
+        
+        # Predictor 초기화 테스트
+        if args.checkpoint and os.path.exists(args.checkpoint):
+            print(f"💾 체크포인트 로드: {args.checkpoint}")
+            predictor = SSDNeRFPredictor(
+                model_path=args.checkpoint,
+                config=config,
+                model_type=args.model_type
+            )
+            print("✅ Predictor 초기화 성공!")
+            
+            # 더미 추론 테스트
+            if args.test_mode == 'dummy':
+                print("🧪 더미 데이터로 추론 테스트...")
+                # 더미 이미지 생성
+                import torch
+                dummy_image = torch.randn(3, 375, 1242)  # KITTI 크기
+                dummy_lidar = torch.randn(1000, 3)  # 더미 LiDAR
+                
+                result = predictor.predict_single_image(dummy_image, lidar_points=dummy_lidar)
+                print(f"🎉 추론 성공! 결과 키들: {list(result.keys())}")
+                
+            print("🎉 모든 테스트 통과!")
+            
+        else:
+            print("⚠️ 체크포인트가 없어서 모델 초기화는 스킵합니다.")
+            print("   다음 중 하나를 실행해보세요:")
+            print("   1. 먼저 학습을 실행해서 체크포인트 생성")
+            print("   2. --checkpoint 옵션으로 체크포인트 지정")
+            
+        # 사용 가능한 체크포인트 확인
+        checkpoint_dir = config.get('training', {}).get('checkpoint_dir', 'output/checkpoints')
+        if os.path.exists(checkpoint_dir):
+            checkpoints = [f for f in os.listdir(checkpoint_dir) if f.endswith('.pth')]
+            if checkpoints:
+                print(f"📁 사용 가능한 체크포인트: {checkpoints}")
+            else:
+                print("📁 체크포인트 없음")
+        
+    except ImportError as e:
+        print(f"❌ 모듈 import 오류: {e}")
+        print("💡 프로젝트 루트에서 실행하세요: python -m src.inference.predictor")
+        
+    except Exception as e:
+        print(f"❌ 테스트 중 오류: {e}")
+        import traceback
+        traceback.print_exc()
+        
+    print("\n🔮 === Predictor 테스트 완료 ===")
