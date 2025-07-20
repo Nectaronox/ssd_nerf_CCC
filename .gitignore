@@ -1,0 +1,172 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# Environments
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Data files (large datasets)
+data/
+dataset/
+datasets/
+*.h5
+*.hdf5
+*.npz
+*.npy
+
+# Model outputs and checkpoints
+output/
+outputs/
+logs/
+checkpoints/
+checkpoint/
+runs/
+wandb/
+tensorboard_logs/
+*.pth
+*.ckpt
+*.pt
+*.pkl
+*.pickle
+
+# Images and videos (generated outputs)
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.mp4
+*.avi
+*.mov
+*.wmv
+
+# Compiled files
+*.pyc
+*.pyo
+*.so
+*.dll
+*.dylib
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.tmp
+
+# Config files with sensitive info
+config_local.py
+secrets.yaml
+.secrets/
+
+# Temporary files
+*.log
+*.out
+*.err
+temp/
+tmp/
+*.backup
+
+# CUDA cache
+.cuda_cache/
+
+# MLflow
+mlruns/
+
+# Weights & Biases
+wandb/
+
+# Archive files (except required ones)
+*.zip
+*.tar.gz
+*.tar
+*.rar
+*.7z
+
+# Keep specific config files but ignore local variations
+!configs/default_config.py
+!configs/kitti_config.yaml
+!configs/static_config.py
+configs/*_local.*
+configs/personal_*
+
+# Exception: Keep important files
+!requirements.txt
+!README.md

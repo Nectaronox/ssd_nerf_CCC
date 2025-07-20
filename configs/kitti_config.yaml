@@ -1,0 +1,37 @@
+# SSD-NeRF Configuration for KITTI Dataset
+# Updated to match default_config.py structure
+
+data:
+  path: 'data/kitti'  # Path to the KITTI dataset directory (consistent with default_config.py)
+  batch_size: 1       # Process one sequence at a time for KITTI
+  num_workers: 4
+  image_size: [375, 1242]  # KITTI standard image dimensions
+  lidar_points: 8192       # Number of LiDAR points to sample
+
+renderer:
+  n_samples: 128      # Number of samples along each ray
+  near: 0.5           # Near clipping plane
+  far: 200.0          # Far clipping plane (suitable for KITTI outdoor scenes)
+
+model:
+  diffusion:
+    time_steps: 1000
+    feature_dim: 128
+  nerf:
+    embedding_dim: 256
+    num_layers: 8
+    use_viewdirs: true
+  ssd_nerf:
+    input_dim: 3        # x, y, z for LiDAR
+    output_dim: 4       # r, g, b, density
+    num_classes: 3      # Car, Van, Truck for KITTI
+
+training:
+  learning_rate: 0.0001
+  num_epochs: 100
+  optimizer: 'Adam'
+  scheduler: 'StepLR'
+  scheduler_step_size: 30
+  scheduler_gamma: 0.1
+  checkpoint_dir: 'output/checkpoints'  # Consistent with default_config.py
+  log_dir: 'output/logs'                # Consistent with default_config.py
