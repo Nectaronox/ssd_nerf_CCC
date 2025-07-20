@@ -63,8 +63,9 @@ class KITTIDataset(Dataset):
             'image': image,
             'lidar_points': torch.from_numpy(lidar_points[:, :3]), # Use x, y, z
             'focal': torch.tensor(focal, dtype=torch.float32),
-            'c2w': torch.from_numpy(c2w).float(),
-            'scene_timestep': torch.tensor([normalized_time], dtype=torch.float32)
+            'camera_to_world': torch.from_numpy(c2w).float(),  # 키 이름 수정
+            'scene_timestep': torch.tensor([normalized_time], dtype=torch.float32),
+            'sample_id': self.image_files[idx]  # 추가로 sample_id도 추가
         }
         
         return sample
