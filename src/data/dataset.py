@@ -13,16 +13,43 @@ class KITTIDataset(Dataset):
     - Loads images, LiDAR point clouds, and calibration data.
     - Generates a normalized time step for each frame to enable temporal modeling.
     """
-    def __init__(self, config, split='train'):
+    def __init__(self, config, split='train', create_dummy_data=False):
         self.config = config
         self.split = split
         self.data_path = config['data']['path']
+        self.create_dummy_data = create_dummy_data
         
+        # 데이터 경로 구성
         self.image_dir = os.path.join(self.data_path, split, 'image_2')
         self.lidar_dir = os.path.join(self.data_path, split, 'velodyne')
         self.calib_dir = os.path.join(self.data_path, split, 'calib')
         
-        self.image_files = sorted([f for f in os.listdir(self.image_dir) if f.endswith('.png')])
+        # ✅ 데이터 경로 존재 여부 확인
+        if not self._check_data_exists():
+            if create_dummy_data:
+                print(f"⚠️ KITTI 데이터가 없어서 더미 데이터를 생성합니다.")
+                self._create_dummy_data()
+            else:
+                self._print_data_download_guide()
+                raise FileNotFoundError(
+                    f"❌ KITTI 데이터셋을 찾을 수 없습니다.\n"
+                    f"경로: {self.image_dir}\n"
+                    f"해결방법:\n"
+                    f"1. KITTI 데이터셋을 다운로드하여 {self.data_path}에 압축 해제\n"
+                    f"2. 또는 create_dummy_data=True로 더미 데이터 사용\n"
+                    f"3. 또는 config에서 올바른 data.path 설정"
+                )
+        
+        # 이미지 파일 리스트 로드
+        try:
+            self.image_files = sorted([f for f in os.listdir(self.image_dir) if f.endswith('.png')])
+            if len(self.image_files) == 0:
+                raise ValueError(f"이미지 파일이 없습니다: {self.image_dir}")
+        except Exception as e:
+            if create_dummy_data:
+                self.image_files = [f"dummy_{i:06d}.png" for i in range(10)]
+            else:
+                raise e
         
         # Calculate sequence length for time normalization
         self.sequence_length = len(self.image_files)
@@ -96,6 +123,76 @@ class KITTIDataset(Dataset):
         # In a real scenario, you'd parse the full rigid body transformation
         calib['T_cam_velo'] = np.eye(4)
         return calib
+
+    def _check_data_exists(self):
+        """데이터 디렉토리 존재 여부 확인"""
+        required_dirs = [self.image_dir, self.lidar_dir, self.calib_dir]
+        return all(os.path.exists(dir_path) for dir_path in required_dirs)
+
+    def _create_dummy_data(self):
+        """테스트용 더미 데이터 생성"""
+        import numpy as np
+        from PIL import Image
+        
+        print(f"📁 더미 데이터 디렉토리 생성 중...")
+        
+        # 디렉토리 생성
+        os.makedirs(self.image_dir, exist_ok=True)
+        os.makedirs(self.lidar_dir, exist_ok=True)
+        os.makedirs(self.calib_dir, exist_ok=True)
+        
+        # 더미 이미지 생성 (10개)
+        for i in range(10):
+            # 375 x 1242 크기의 더미 이미지 생성
+            dummy_image = np.random.randint(0, 255, (375, 1242, 3), dtype=np.uint8)
+            image_path = os.path.join(self.image_dir, f"dummy_{i:06d}.png")
+            Image.fromarray(dummy_image).save(image_path)
+            
+            # 더미 LiDAR 데이터 생성
+            dummy_lidar = np.random.randn(1000, 4).astype(np.float32)
+            lidar_path = os.path.join(self.lidar_dir, f"dummy_{i:06d}.bin")
+            dummy_lidar.tofile(lidar_path)
+            
+            # 더미 calibration 데이터 생성
+            calib_content = """P0: 7.215377e+02 0.000000e+00 6.095593e+02 0.000000e+00 0.000000e+00 7.215377e+02 1.728540e+02 0.000000e+00 0.000000e+00 0.000000e+00 1.000000e+00 0.000000e+00
+P1: 7.215377e+02 0.000000e+00 6.095593e+02 -3.875744e+02 0.000000e+00 7.215377e+02 1.728540e+02 0.000000e+00 0.000000e+00 0.000000e+00 1.000000e+00 0.000000e+00
+P2: 7.215377e+02 0.000000e+00 6.095593e+02 4.485728e+01 0.000000e+00 7.215377e+02 1.728540e+02 2.163791e-01 0.000000e+00 0.000000e+00 1.000000e+00 2.745884e-03
+P3: 7.215377e+02 0.000000e+00 6.095593e+02 -3.395242e+02 0.000000e+00 7.215377e+02 1.728540e+02 2.199936e+00 0.000000e+00 0.000000e+00 1.000000e+00 2.729905e-03
+R0_rect: 9.999239e-01 9.837760e-03 -7.445048e-03 -9.869795e-03 9.999421e-01 -4.278459e-03 7.402527e-03 4.351614e-03 9.999631e-01
+Tr_velo_to_cam: 7.533745e-03 -9.999714e-01 -6.166020e-04 -4.069766e-03 1.480249e-02 7.280733e-04 -9.998902e-01 -7.631618e-02 9.998621e-01 7.523790e-03 1.480755e-02 -2.717806e-01
+Tr_imu_to_velo: 9.999976e-01 7.553071e-04 -2.035826e-03 -8.086759e-01 -7.854027e-04 9.998898e-01 -1.482298e-02 3.195559e-01 2.024406e-03 1.482454e-02 9.998881e-01 -7.997231e-01"""
+            
+            calib_path = os.path.join(self.calib_dir, f"dummy_{i:06d}.txt")
+            with open(calib_path, 'w') as f:
+                f.write(calib_content)
+        
+        print(f"✅ 더미 데이터 생성 완료: {len(os.listdir(self.image_dir))}개 샘플")
+
+    def _print_data_download_guide(self):
+        """KITTI 데이터셋 다운로드 가이드 출력"""
+        print("\n" + "="*80)
+        print("🚨 KITTI 데이터셋이 필요합니다!")
+        print("="*80)
+        print("📥 다운로드 방법:")
+        print("1. KITTI 공식 웹사이트 방문: http://www.cvlibs.net/datasets/kitti/")
+        print("2. '3D Object Detection' 또는 'Raw Data' 섹션에서 다음 파일들 다운로드:")
+        print("   - Left color images of object data set (12 GB)")
+        print("   - Velodyne point clouds (29 GB)")
+        print("   - Camera calibration matrices (16 MB)")
+        print("3. 다운로드한 파일들을 다음 구조로 압축 해제:")
+        print(f"   {self.data_path}/")
+        print("   ├── training/")
+        print("   │   ├── image_2/")
+        print("   │   ├── velodyne/")
+        print("   │   └── calib/")
+        print("   └── testing/")
+        print("       ├── image_2/")
+        print("       ├── velodyne/")
+        print("       └── calib/")
+        print("\n💡 임시 해결책:")
+        print("더미 데이터로 테스트하려면 다음과 같이 실행:")
+        print("  dataset = KITTIDataset(config, split='test', create_dummy_data=True)")
+        print("="*80)
 
 def download_kitti_sample():
     """

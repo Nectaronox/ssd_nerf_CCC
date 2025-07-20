@@ -28,7 +28,7 @@ def setup_logging():
     )
     return logging.getLogger(__name__)
 
-def run_inference(config, checkpoint_path, output_dir, max_frames=50):
+def run_inference(config, checkpoint_path, output_dir, max_frames=50, use_dummy_data=False):
     logger = setup_logging()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"🔧 Using device: {device}")
@@ -59,9 +59,24 @@ def run_inference(config, checkpoint_path, output_dir, max_frames=50):
         
         # Load dataset
         logger.info("📊 Loading KITTI dataset...")
-        dataset = KITTIDataset(config, split='test')
+        try:
+            dataset = KITTIDataset(config, split='test', create_dummy_data=use_dummy_data)
+            logger.info(f"✅ Dataset loaded: {len(dataset)} samples")
+        except FileNotFoundError as e:
+            if not use_dummy_data:
+                logger.error("❌ KITTI 데이터셋을 찾을 수 없습니다.")
+                logger.error("💡 더미 데이터로 시도하려면 --use_dummy_data 플래그를 사용하세요.")
+                raise
+            else:
+                logger.error(f"❌ 더미 데이터 생성에 실패했습니다: {e}")
+                raise
+        except Exception as e:
+            logger.error(f"❌ 데이터셋 로드 중 오류: {e}")
+            if not use_dummy_data:
+                logger.error("💡 더미 데이터로 시도해보세요: --use_dummy_data")
+            raise
+        
         renderer = Renderer(config)
-        logger.info(f"✅ Dataset loaded: {len(dataset)} samples")
         
         logger.info(f"Running inference on {min(max_frames, len(dataset))} samples using {model_type} model...")
         
@@ -238,6 +253,7 @@ def main():
     parser.add_argument('--checkpoint', type=str, required=True, help="Path to model checkpoint")
     parser.add_argument('--output', type=str, default='output/inference', help="Output directory")
     parser.add_argument('--max_frames', type=int, default=50, help="Maximum frames to process")
+    parser.add_argument('--use_dummy_data', action='store_true', help="Use dummy data for testing if KITTI dataset is not found")
     
     args = parser.parse_args()
     
@@ -252,7 +268,7 @@ def main():
     
     # 설정 로드 및 실행
     config = load_config(args.config)
-    run_inference(config, args.checkpoint, args.output, args.max_frames)
+    run_inference(config, args.checkpoint, args.output, args.max_frames, args.use_dummy_data)
 
 if __name__ == '__main__':
     main() 

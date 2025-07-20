@@ -81,6 +81,8 @@ def main():
                         help="Output file for results")
     parser.add_argument('--split', type=str, default='test', choices=['train', 'test'],
                         help="Dataset split to evaluate on")
+    parser.add_argument('--use_dummy_data', action='store_true',
+                        help="Use dummy data for testing when KITTI dataset is not available")
     
     args = parser.parse_args()
     
@@ -98,16 +100,29 @@ def main():
         # Load dataset
         logger.info(f"📊 Loading KITTI dataset ({args.split} split)")
         try:
-            dataset = KITTIDataset(config, split=args.split)
+            dataset = KITTIDataset(config, split=args.split, create_dummy_data=args.use_dummy_data)
             logger.info(f"✅ Dataset loaded: {len(dataset)} samples")
             
             if len(dataset) == 0:
                 logger.warning("⚠️ Dataset is empty. Please check data path and split.")
                 return 1
                 
+        except FileNotFoundError as e:
+            if not args.use_dummy_data:
+                logger.error(f"❌ KITTI 데이터셋을 찾을 수 없습니다.")
+                logger.error("💡 해결 방법:")
+                logger.error("  1. KITTI 데이터셋을 다운로드하여 올바른 경로에 설치")
+                logger.error("  2. 또는 --use_dummy_data 플래그로 더미 데이터 사용")
+                logger.error("     예시: python scripts/run_evaluation.py --config configs/default_config.py --use_dummy_data --model_type dynamic")
+                return 1
+            else:
+                logger.error(f"❌ 더미 데이터 생성에도 실패했습니다: {e}")
+                return 1
         except Exception as e:
-            logger.error(f"❌ Failed to load dataset: {e}")
+            logger.error(f"❌ 데이터셋 로드 중 예상치 못한 오류: {e}")
             logger.error(traceback.format_exc())
+            if not args.use_dummy_data:
+                logger.error("💡 더미 데이터로 시도해보세요: --use_dummy_data")
             return 1
         
         # Initialize benchmark
