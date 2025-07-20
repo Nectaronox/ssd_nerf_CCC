@@ -1,9 +1,20 @@
 import torch
 import numpy as np
 
+# ⚠️ DEPRECATED: 이 파일은 더 이상 권장되지 않습니다.
+# 대신 src/utils/rays.py를 사용하세요. rays.py는 다음 장점을 제공합니다:
+# - 타입 힌트 지원
+# - Device 호환성
+# - NDC 변환 기능  
+# - Ray 샘플링 기능
+# - 더 효율적인 구현
+
 def get_rays(H, W, focal, c2w):
     """
     Generate rays from camera parameters.
+    
+    ⚠️ DEPRECATED: Use src/utils/rays.py instead for better functionality.
+    
     Args:
         H (int): Image height.
         W (int): Image width.
@@ -13,6 +24,8 @@ def get_rays(H, W, focal, c2w):
         rays_o (torch.Tensor): Ray origins (N_rays, 3).
         rays_d (torch.Tensor): Ray directions (N_rays, 3).
     """
+    print("⚠️ WARNING: ray_utils.py is deprecated. Use rays.py instead!")
+    
     i, j = torch.meshgrid(torch.linspace(0.5, W - 0.5, W), torch.linspace(0.5, H - 0.5, H), indexing='xy')
     i, j = i.t(), j.t()
     

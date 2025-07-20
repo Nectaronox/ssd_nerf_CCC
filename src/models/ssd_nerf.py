@@ -18,6 +18,12 @@ def find_nearest_neighbor_features(pts, lidar_pts, features):
     """
     B, N_rays, N_samples, _ = pts.shape
     
+    # Device 일치성 확인
+    if pts.device != lidar_pts.device:
+        lidar_pts = lidar_pts.to(pts.device)
+    if pts.device != features.device:
+        features = features.to(pts.device)
+    
     pts_flat = pts.reshape(B, -1, 3) # (B, N_rays*N_samples, 3)
     
     # Calculate pairwise distances
@@ -60,6 +66,12 @@ class SSD_NeRF(nn.Module):
         B, N_rays, N_samples, _ = rays.shape
         rays_flat = rays.reshape(B, -1, 3)
         displacement = self.deformation_module(rays_flat, scene_timestep)
+        
+        # 차원 검증 추가
+        expected_shape = rays_flat.shape
+        if displacement.shape != expected_shape:
+            raise ValueError(f"Displacement shape {displacement.shape} doesn't match rays_flat shape {expected_shape}")
+            
         canonical_rays_flat = rays_flat + displacement
         canonical_rays = canonical_rays_flat.reshape(B, N_rays, N_samples, 3)
         

@@ -29,12 +29,18 @@ class SSDNeRF(nn.Module):
     It uses an SSD for 2D proposals and a head to predict 3D box parameters
     from RoI-aligned features.
     """
-    def __init__(self, num_classes, box_params=7):
+    def __init__(self, num_classes, box_params=7, input_size=300):
         super(SSDNeRF, self).__init__()
         self.ssd = SSDModel(num_classes=num_classes)
+        self.input_size = input_size
+        
+        # Calculate spatial_scale dynamically based on feature map reduction
+        # VGG conv4_3 has stride 8, so spatial_scale = 1/8
+        # But we make it configurable for different input sizes
+        self.spatial_scale = 1.0 / 8.0  # Default for VGG conv4_3
         
         # RoIAlign to extract features for each box from the first VGG feature map
-        self.roi_align = RoIAlign(output_size=(7, 7), spatial_scale=1.0/8.0, sampling_ratio=2)
+        self.roi_align = RoIAlign(output_size=(7, 7), spatial_scale=self.spatial_scale, sampling_ratio=2)
         
         # The prediction head
         # Input channels: 512 (from VGG feature map) * 7 * 7 (from RoIAlign)
@@ -66,11 +72,20 @@ class SSDNeRF(nn.Module):
             return locs_2d, confs_2d, None
 
         # Training path: use provided ground-truth 2D boxes as proposals.
-        # Create batch indices for RoIAlign
-        box_indices = torch.cat([
-            torch.full_like(p[:, :1], i, dtype=torch.float, device=image.device)
-            for i, p in enumerate(proposals_list)
-        ])
+        # Create batch indices for RoIAlign - 수정된 부분
+        box_indices = []
+        for i, proposals in enumerate(proposals_list):
+            if len(proposals) > 0:
+                batch_indices = torch.full((proposals.shape[0], 1), i, 
+                                         dtype=torch.float, device=image.device)
+                box_indices.append(batch_indices)
+        
+        if not box_indices:
+            # No proposals in any image
+            return locs_2d, confs_2d, None
+            
+        box_indices = torch.cat(box_indices, dim=0)
+        
         # Concatenate all proposals into a single tensor
         all_proposals = torch.cat(proposals_list, dim=0)
         

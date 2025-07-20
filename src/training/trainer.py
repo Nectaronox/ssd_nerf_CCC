@@ -11,8 +11,8 @@ import traceback
 from src.data.dataset import KITTIDataset
 from src.models.ssd_nerf import SSD_NeRF as DynamicSSDNeRF
 from src.model_arch.ssd_nerf_model import SSDNeRF as StaticSSDNeRF
-from src.utils.rays import get_rays, ndc_rays
-from .renderer import Renderer, sample_along_rays, volume_render
+from src.utils.rays import get_rays, sample_points_on_rays, ndc_rays
+from .renderer import Renderer, volume_render
 
 
 class Trainer:
@@ -82,24 +82,16 @@ class Trainer:
             raise
 
     def _setup_logger(self):
-        """Initializes the logger for training."""
         self.logger = logging.getLogger("Trainer")
-        
-        # 기존 핸들러 제거 (중복 방지)
         for handler in self.logger.handlers[:]:
             self.logger.removeHandler(handler)
-            
         self.logger.setLevel(logging.INFO)
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        
-        # Log to file
         os.makedirs(self.config['output_path'], exist_ok=True)
         log_file = os.path.join(self.config['output_path'], 'training.log')
         file_handler = logging.FileHandler(log_file)
         file_handler.setFormatter(formatter)
         self.logger.addHandler(file_handler)
-        
-        # Log to console
         stream_handler = logging.StreamHandler()
         stream_handler.setFormatter(formatter)
         self.logger.addHandler(stream_handler)
@@ -189,16 +181,15 @@ class Trainer:
                 H, W = images.shape[2], images.shape[3]
                 focal = batch['focal'][0].item()
                 
-                # Process camera-to-world matrix
-                c2w_4x4 = self._process_c2w_matrix(c2w[0])
+                # Process camera-to-world matrix for rays.py compatibility  
+                c2w_processed = self._process_c2w_for_rays(c2w[0])
                 
-                # Generate rays
-                rays_o, rays_d = get_rays(H, W, focal, c2w_4x4)
-                rays_o, rays_d = rays_o.to(self.device), rays_d.to(self.device)
+                # ✅ rays.py의 get_rays 사용 (device 호환성 보장)
+                rays_o, rays_d = get_rays(H, W, focal, c2w_processed)
                 
                 # Sub-sample rays for efficiency
-                num_train_rays = min(1024, rays_o.shape[0])
-                ray_indices = torch.randperm(rays_o.shape[0])[:num_train_rays]
+                num_train_rays = min(self.config['training'].get('num_train_rays', 1024), rays_o.shape[0])
+                ray_indices = torch.randperm(rays_o.shape[0], device=self.device)[:num_train_rays]
                 rays_o_train, rays_d_train = rays_o[ray_indices], rays_d[ray_indices]
                 
                 gt_pixels = images.permute(0, 2, 3, 1).reshape(-1, 3)[ray_indices]
@@ -218,8 +209,9 @@ class Trainer:
                 self.optimizer.zero_grad()
                 loss.backward()
                 
-                # Gradient clipping for stability
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                # ✅ 설정 기반 Gradient clipping for stability
+                max_norm = self.config['training'].get('gradient_clip_max_norm', 1.0)
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=max_norm)
                 
                 self.optimizer.step()
                 
@@ -248,6 +240,24 @@ class Trainer:
         
         return total_loss / max(num_batches, 1)
 
+    def _process_c2w_for_rays(self, c2w):
+        """
+        Process camera-to-world matrix for rays.py compatibility.
+        rays.py expects 3x4 matrix, not 4x4.
+        """
+        if c2w.shape == (4, 4):
+            return c2w[:3, :4]  # Convert 4x4 to 3x4
+        elif c2w.shape == (3, 4):
+            return c2w  # Already correct format
+        else:
+            self.logger.warning(f"⚠️ 예상하지 못한 c2w 행렬 크기: {c2w.shape}")
+            # Force to 3x4 format
+            if c2w.numel() >= 12:
+                return c2w.view(3, 4)
+            else:
+                # Fallback to identity
+                return torch.eye(3, 4, device=c2w.device, dtype=c2w.dtype)
+
     def _process_c2w_matrix(self, c2w):
         """Process camera-to-world matrix to ensure 4x4 format."""
         if c2w.shape[0] == 3:  # 3x4 matrix
@@ -267,11 +277,24 @@ class Trainer:
             0, self.config['model']['diffusion']['time_steps'], (B,), device=self.device
         )
         
-        # Sample points along rays
-        pts, z_vals = sample_along_rays(
-            rays_o_train, rays_d_train, 
-            self.renderer.near, self.renderer.far, self.renderer.n_samples
+        # ✅ rays.py의 고급 샘플링 기능 사용
+        pts, z_vals = sample_points_on_rays(
+            rays_o_train, rays_d_train,
+            near=self.renderer.near,
+            far=self.renderer.far,
+            n_samples=self.renderer.n_samples,
+            perturb=self.config.get('rendering', {}).get('perturb_rays', True),  # config에서 설정 가져오기
+            l_disp=self.config['training'].get('use_disparity_sampling', True)  # disparity space 샘플링
         )
+        
+        # NDC 변환 옵션 (필요시 활성화)
+        use_ndc = self.config['training'].get('use_ndc', False)
+        if use_ndc:
+            H, W = images.shape[2], images.shape[3]
+            focal = self.config['data'].get('focal_length', 400.0)  # config에서 focal length 가져오기
+            rays_o_ndc, rays_d_ndc = ndc_rays(H, W, focal, self.renderer.near, rays_o_train, rays_d_train)
+            rays_o_train, rays_d_train = rays_o_ndc, rays_d_ndc
+            self.logger.debug("📐 NDC 변환 적용됨")
         
         # Process point dimensions
         pts_batch = self._process_pts_dimensions(pts, rays_o_train.shape[0], B)
@@ -284,12 +307,19 @@ class Trainer:
         if not self._validate_model_outputs(outputs, required_keys=['nerf_output']):
             raise ValueError("Model outputs are missing required keys")
         
-        # Volumetric rendering
+        # Volumetric rendering - config에서 파라미터 가져오기
         raw_output = outputs['nerf_output'].squeeze(0)
+        rendering_config = self.config.get('rendering', {})
         rgb_map, depth_map, acc_map, disp_map = volume_render(
             raw_output, z_vals, rays_d_train, 
-            raw_noise_std=0.1, white_bkgd=False
+            raw_noise_std=rendering_config.get('raw_noise_std', 0.1),
+            white_bkgd=rendering_config.get('white_background', False)
         )
+        
+        # ✅ 설정 기반 loss 가중치 적용
+        loss_weights = self.config['training'].get('loss_weights', {
+            'nerf': 1.0, 'diffusion': 0.1, 'displacement': 0.01
+        })
         
         # Calculate losses
         loss_nerf = self.nerf_loss(rgb_map, gt_pixels)
@@ -307,13 +337,25 @@ class Trainer:
         else:
             loss_displacement = torch.tensor(0.0, device=self.device)
         
-        total_loss = loss_nerf + 0.1 * loss_diffusion + 0.01 * loss_displacement
+        # ✅ 설정 기반 가중치 적용
+        total_loss = (loss_weights['nerf'] * loss_nerf + 
+                     loss_weights['diffusion'] * loss_diffusion + 
+                     loss_weights['displacement'] * loss_displacement)
         
         # Log individual losses
         step = epoch * len(self.train_loader) + batch_idx
         self.writer.add_scalar('Loss/NeRF', loss_nerf.item(), step)
         self.writer.add_scalar('Loss/Diffusion', loss_diffusion.item(), step)
         self.writer.add_scalar('Loss/Displacement', loss_displacement.item(), step)
+        self.writer.add_scalar('Loss/Weighted_Total', total_loss.item(), step)
+        
+        # 추가 메트릭 로깅
+        if hasattr(self, 'writer'):
+            self.writer.add_scalar('Metrics/Depth_Mean', depth_map.mean().item(), step)
+            self.writer.add_scalar('Metrics/Acc_Mean', acc_map.mean().item(), step)
+            # RGB 색상 분포 모니터링
+            self.writer.add_scalar('Metrics/RGB_Mean', rgb_map.mean().item(), step)
+            self.writer.add_scalar('Metrics/RGB_Std', rgb_map.std().item(), step)
         
         return total_loss
 
