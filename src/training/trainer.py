@@ -148,12 +148,20 @@ class Trainer:
             
             # 차원 확인 및 안전한 배치 차원 처리
             print(f"DEBUG: pts shape: {pts.shape}, z_vals shape: {z_vals.shape}")
+            print(f"DEBUG: rays_o_train shape: {rays_o_train.shape}, rays_d_train shape: {rays_d_train.shape}")
             
-            # pts 차원에 따라 적절히 처리
-            if pts.dim() == 3:  # (N_rays, N_samples, 3)
+            # pts 차원을 (B, N_rays, N_samples, 3)로 변환
+            if pts.dim() == 4:  # (H, W, N_samples, 3) 또는 (B, N_rays, N_samples, 3)
+                if pts.shape[0] == H and pts.shape[1] == W:
+                    # (H, W, N_samples, 3) → (1, H*W, N_samples, 3) → 서브샘플링
+                    pts_reshaped = pts.reshape(H * W, self.renderer.n_samples, 3)
+                    pts_subsampled = pts_reshaped[ray_indices]  # 서브샘플링된 rays만 선택
+                    pts_batch = pts_subsampled.unsqueeze(0).expand(B, -1, -1, -1)
+                else:
+                    # 이미 올바른 배치 형태
+                    pts_batch = pts.expand(B, -1, -1, -1) if pts.shape[0] == 1 else pts
+            elif pts.dim() == 3:  # (N_rays, N_samples, 3)
                 pts_batch = pts.unsqueeze(0).expand(B, -1, -1, -1)
-            elif pts.dim() == 4:  # 이미 배치 차원이 있는 경우
-                pts_batch = pts.expand(B, -1, -1, -1)
             else:
                 # 안전장치: 강제로 올바른 형태로 reshape
                 N_rays = rays_o_train.shape[0]
