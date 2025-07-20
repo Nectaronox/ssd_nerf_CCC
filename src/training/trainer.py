@@ -144,7 +144,7 @@ class Trainer:
             diffusion_timesteps = torch.randint(0, self.config['model']['diffusion']['time_steps'], (B,)).to(self.device)
             
             # Sample points along rays
-            pts, z_vals = sample_points_on_rays(rays_o_train, rays_d_train, self.renderer.near, self.renderer.far, self.renderer.n_samples)
+            pts, z_vals = sample_along_rays(rays_o_train, rays_d_train, self.renderer.near, self.renderer.far, self.renderer.n_samples)
             
             # 차원 확인 및 안전한 배치 차원 처리
             print(f"DEBUG: pts shape: {pts.shape}, z_vals shape: {z_vals.shape}")
