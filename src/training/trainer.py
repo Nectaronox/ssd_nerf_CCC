@@ -123,7 +123,14 @@ class Trainer:
             # Get focal length from dataset (already computed)
             focal = batch['focal'][0].item()  # For now, use first sample in batch
             
-            rays_o, rays_d = get_rays(H, W, focal, c2w[0]) # Use first sample in batch
+            # 4x4 매트릭스로 변환하여 호환성 확보
+            if c2w[0].shape[0] == 3:  # 3x4 매트릭스인 경우
+                c2w_4x4 = torch.eye(4, device=self.device, dtype=c2w.dtype)
+                c2w_4x4[:3, :4] = c2w[0]
+            else:  # 이미 4x4 매트릭스인 경우
+                c2w_4x4 = c2w[0]
+            
+            rays_o, rays_d = get_rays(H, W, focal, c2w_4x4)
             rays_o, rays_d = rays_o.to(self.device), rays_d.to(self.device)
             
             # Sub-sample rays for faster training
@@ -137,14 +144,27 @@ class Trainer:
             diffusion_timesteps = torch.randint(0, self.config['model']['diffusion']['time_steps'], (B,)).to(self.device)
             
             # Sample points along rays
-            pts, z_vals = sample_along_rays(rays_o_train, rays_d_train, self.renderer.near, self.renderer.far, self.renderer.n_samples)
-            pts = pts.unsqueeze(0).expand(B, -1, -1, -1) # Add batch dim
+            pts, z_vals = sample_points_on_rays(rays_o_train, rays_d_train, self.renderer.near, self.renderer.far, self.renderer.n_samples)
+            
+            # 차원 확인 및 안전한 배치 차원 처리
+            print(f"DEBUG: pts shape: {pts.shape}, z_vals shape: {z_vals.shape}")
+            
+            # pts 차원에 따라 적절히 처리
+            if pts.dim() == 3:  # (N_rays, N_samples, 3)
+                pts_batch = pts.unsqueeze(0).expand(B, -1, -1, -1)
+            elif pts.dim() == 4:  # 이미 배치 차원이 있는 경우
+                pts_batch = pts.expand(B, -1, -1, -1)
+            else:
+                # 안전장치: 강제로 올바른 형태로 reshape
+                N_rays = rays_o_train.shape[0]
+                pts_batch = pts.reshape(B, N_rays, self.renderer.n_samples, 3)
+            
             view_dirs = rays_d_train.unsqueeze(0).expand(B, -1, -1)
             
             # Forward pass - different for dynamic vs static models
             if self.is_dynamic:
                 # Dynamic SSD-NeRF: Uses Diffusion + Deformation + NeRF
-                outputs = self.model(lidar_points, view_dirs, pts, diffusion_timesteps, scene_timestep)
+                outputs = self.model(lidar_points, view_dirs, pts_batch, diffusion_timesteps, scene_timestep)
                 
                 # Enhanced volumetric rendering with noise regularization during training
                 raw_output = outputs['nerf_output'].squeeze(0) # Remove batch dim for rendering
