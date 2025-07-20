@@ -35,3 +35,5 @@ training:
   scheduler_gamma: 0.1
   checkpoint_dir: 'output/checkpoints'  # Consistent with default_config.py
   log_dir: 'output/logs'                # Consistent with default_config.py
+
+output_path: 'output'  # 누락된 출력 경로 추가

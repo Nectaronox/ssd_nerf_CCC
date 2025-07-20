@@ -30,5 +30,6 @@ config = {
         'scheduler_gamma': 0.1,
         'checkpoint_dir': 'output/checkpoints_static',
         'log_dir': 'output/logs_static',
-    }
+    },
+    'output_path': 'output'  # 누락된 출력 경로 추가
 } 
