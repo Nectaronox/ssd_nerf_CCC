@@ -120,8 +120,8 @@ class Trainer:
             c2w = batch['camera_to_world'].to(self.device) # Use real camera pose
             
             H, W = images.shape[2], images.shape[3]
-            # Get focal length from KITTI calibration data (handle batch properly)
-            focal = batch['calibration']['P2'][0, 0, 0].item()  # For now, use first sample in batch
+            # Get focal length from dataset (already computed)
+            focal = batch['focal'][0].item()  # For now, use first sample in batch
             
             rays_o, rays_d = get_rays(H, W, focal, c2w[0]) # Use first sample in batch
             rays_o, rays_d = rays_o.to(self.device), rays_d.to(self.device)
