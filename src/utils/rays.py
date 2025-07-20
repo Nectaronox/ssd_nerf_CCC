@@ -32,7 +32,8 @@ def get_rays(H: int, W: int, focal: float, c2w: torch.Tensor):
     )
     rays_o = c2w[:3, -1].expand(rays_d.shape)
     
-    return rays_o, rays_d
+    # ✅ 차원 수정: (H, W, 3) -> (H*W, 3)으로 reshape하여 doc string과 일치시킴
+    return rays_o.reshape(-1, 3), rays_d.reshape(-1, 3)
 
 def sample_points_on_rays(
     rays_o: torch.Tensor,

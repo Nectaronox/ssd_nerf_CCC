@@ -187,12 +187,28 @@ class Trainer:
                 # ✅ rays.py의 get_rays 사용 (device 호환성 보장)
                 rays_o, rays_d = get_rays(H, W, focal, c2w_processed)
                 
+                # 🔍 차원 검증 로그 (디버깅용)
+                if i == 0:  # 첫 번째 배치에서만 로그
+                    self.logger.debug(f"📏 Image shape: {images.shape} (B={images.shape[0]}, C={images.shape[1]}, H={H}, W={W})")
+                    self.logger.debug(f"📏 rays_o shape: {rays_o.shape} (expected: ({H*W}, 3) = ({H*W}, 3))")
+                    self.logger.debug(f"📏 rays_d shape: {rays_d.shape}")
+                
                 # Sub-sample rays for efficiency
                 num_train_rays = min(self.config['training'].get('num_train_rays', 1024), rays_o.shape[0])
                 ray_indices = torch.randperm(rays_o.shape[0], device=self.device)[:num_train_rays]
                 rays_o_train, rays_d_train = rays_o[ray_indices], rays_d[ray_indices]
                 
+                # ✅ gt_pixels 차원 검증
                 gt_pixels = images.permute(0, 2, 3, 1).reshape(-1, 3)[ray_indices]
+                
+                # 🔍 차원 일치성 검증
+                if rays_o_train.shape[0] != gt_pixels.shape[0]:
+                    raise ValueError(f"❌ Ray와 GT pixel 수가 맞지 않음: rays={rays_o_train.shape[0]}, pixels={gt_pixels.shape[0]}")
+                
+                if i == 0:  # 첫 번째 배치에서만 로그
+                    self.logger.debug(f"📏 rays_o_train shape: {rays_o_train.shape}")
+                    self.logger.debug(f"📏 gt_pixels shape: {gt_pixels.shape}")
+                    self.logger.debug(f"📏 num_train_rays: {num_train_rays}")
                 
                 # Forward pass
                 if self.is_dynamic:
