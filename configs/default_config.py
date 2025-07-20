@@ -32,7 +32,7 @@ config = {
     },
     'training': {
         'learning_rate': 1e-4,
-        'num_epochs': 100,
+        'epochs': 100,
         'optimizer': 'Adam',
         'scheduler': 'StepLR',
         'scheduler_step_size': 30,

@@ -28,7 +28,7 @@ model:
 
 training:
   learning_rate: 0.0001
-  num_epochs: 100
+  epochs: 100
   optimizer: 'Adam'
   scheduler: 'StepLR'
   scheduler_step_size: 30
