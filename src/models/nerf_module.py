@@ -29,18 +29,24 @@ class NeRFModule(nn.Module):
             [nn.Linear(self.W, self.W) if i != 4 else nn.Linear(self.W + self.input_ch, self.W) for i in range(self.D - 1)]
         )
         
+        # ✅ Skip connection 후 차원 계산 수정
+        # Skip connection이 있는 경우, 마지막 h의 차원은 W가 됨 (layer 4 이후)
         # Modified part to include conditioning
         if self.condition_dim > 0:
+            # Skip connection 후에도 h는 W 차원을 유지함
             self.feature_linear = nn.Linear(self.W + self.condition_dim, self.W)
         else:
             self.feature_linear = nn.Linear(self.W, self.W)
             
         self.alpha_linear = nn.Linear(self.W, 1)
         
+        # ✅ RGB 처리를 위한 feature 차원 축소
+        self.feature_to_rgb = nn.Linear(self.W, self.W // 2)  # 256 -> 128
+        
         if self.use_viewdirs:
             self.rgb_linear = nn.Linear(self.W // 2 + self.input_ch_views, self.W // 2)
         else:
-            self.rgb_linear = nn.Linear(self.W, self.W // 2)
+            self.rgb_linear = nn.Linear(self.W // 2, self.W // 2)  # W//2 -> W//2로 수정
             
         self.output_linear = nn.Linear(self.W // 2, 3)
 
@@ -48,6 +54,9 @@ class NeRFModule(nn.Module):
         # x: (B, N_rays, N_samples, 3) - 3D points
         # view_dirs: (B, N_rays, 3) - view directions
         # condition: (B, N_rays, N_samples, D_feature) - Conditional features
+        
+        # 🔍 입력 차원 검증 (디버깅용)
+        batch_size, n_rays, n_samples = x.shape[:3]
         
         # Positional encoding
         encoded_pts = self.pos_encoder(x)
@@ -59,13 +68,26 @@ class NeRFModule(nn.Module):
             if i == 4: # Skip connection
                 h = torch.cat([encoded_pts, h], -1)
 
-        # Apply condition
+        # ✅ Apply condition - 차원 확인 추가
         if self.condition_dim > 0:
-            assert condition is not None
+            assert condition is not None, "Condition must be provided when condition_dim > 0"
+            
+            # 차원 검증
+            expected_h_dim = self.W  # Skip connection layer는 W 차원을 출력
+            expected_condition_dim = self.condition_dim
+            
+            if h.shape[-1] != expected_h_dim:
+                raise ValueError(f"❌ h 차원 불일치: expected {expected_h_dim}, got {h.shape[-1]}")
+            if condition.shape[-1] != expected_condition_dim:
+                raise ValueError(f"❌ condition 차원 불일치: expected {expected_condition_dim}, got {condition.shape[-1]}")
+            
             h = torch.cat([h, condition], dim=-1)
         
         feature = self.feature_linear(h)
         alpha = self.alpha_linear(feature) # Use feature after conditioning
+        
+        # ✅ RGB 처리를 위해 feature 차원 축소
+        rgb_feature = self.feature_to_rgb(feature)  # W -> W//2
         
         if self.use_viewdirs:
             assert view_dirs is not None
@@ -73,12 +95,21 @@ class NeRFModule(nn.Module):
             view_dirs_expanded = view_dirs.unsqueeze(2).expand(-1, -1, x.shape[2], -1)
             encoded_dirs = self.dir_encoder(view_dirs_expanded)
             
+            # ✅ 차원 검증
+            expected_rgb_feature_dim = self.W // 2  # 128
+            expected_dirs_dim = self.input_ch_views  # 27
+            
+            if rgb_feature.shape[-1] != expected_rgb_feature_dim:
+                raise ValueError(f"❌ rgb_feature 차원 불일치: expected {expected_rgb_feature_dim}, got {rgb_feature.shape[-1]}")
+            if encoded_dirs.shape[-1] != expected_dirs_dim:
+                raise ValueError(f"❌ encoded_dirs 차원 불일치: expected {expected_dirs_dim}, got {encoded_dirs.shape[-1]}")
+            
             # Concatenate features and encoded directions
-            h = torch.cat([feature, encoded_dirs], -1)
+            h = torch.cat([rgb_feature, encoded_dirs], -1)  # (128 + 27) = 155
             h = self.rgb_linear(h)
             h = F.relu(h)
         else:
-            h = self.rgb_linear(feature)
+            h = self.rgb_linear(rgb_feature)  # rgb_feature 사용
 
         rgb = self.output_linear(h) # (B, N_rays, N_samples, 3)
         

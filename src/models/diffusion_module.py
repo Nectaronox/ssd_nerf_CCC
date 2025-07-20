@@ -13,10 +13,13 @@ class DiffusionModule(nn.Module):
         self.time_embedding = nn.Embedding(self.time_steps, self.feature_dim)
         # Use the unified PositionalEncoder from utils
         self.scene_time_encoder = PositionalEncoder(d_input=1, n_freqs=10)
-        scene_time_dim = self.scene_time_encoder.d_output
+        scene_time_dim = self.scene_time_encoder.d_output  # 1 * (1 + 2*10) = 21
+        
+        # ✅ 차원 계산 명시적으로 표시
+        input_dim = 3 + self.feature_dim + scene_time_dim  # 3 + 128 + 21 = 152
         
         # Input: (B, N, 3 + diffusion_feature_dim + scene_time_dim)
-        self.fc1 = nn.Linear(3 + self.feature_dim + scene_time_dim, 256)
+        self.fc1 = nn.Linear(input_dim, 256)
         self.fc2 = nn.Linear(256, 512)
         
         self.fc3 = nn.Linear(512, 256)
@@ -32,6 +35,9 @@ class DiffusionModule(nn.Module):
         Returns:
             torch.Tensor: Predicted noise or feature map (B, N, feature_dim).
         """
+        # 🔍 입력 차원 검증
+        B, N, spatial_dim = noisy_points.shape
+        assert spatial_dim == 3, f"Expected spatial_dim=3, got {spatial_dim}"
     
         diff_time_emb = self.time_embedding(diffusion_t).unsqueeze(1).expand(-1, noisy_points.shape[1], -1)
         
@@ -45,6 +51,11 @@ class DiffusionModule(nn.Module):
                                        self.scene_time_encoder.d_output, 
                                        device=noisy_points.device, dtype=noisy_points.dtype)
             x = torch.cat([noisy_points, diff_time_emb, zero_scene_emb], dim=-1)
+
+        # ✅ 차원 검증 추가
+        expected_input_dim = 3 + self.feature_dim + self.scene_time_encoder.d_output
+        if x.shape[-1] != expected_input_dim:
+            raise ValueError(f"❌ DiffusionModule input 차원 불일치: expected {expected_input_dim}, got {x.shape[-1]}")
 
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))

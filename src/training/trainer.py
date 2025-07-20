@@ -85,15 +85,18 @@ class Trainer:
         self.logger = logging.getLogger("Trainer")
         for handler in self.logger.handlers[:]:
             self.logger.removeHandler(handler)
-        self.logger.setLevel(logging.INFO)
+        # ✅ 차원 문제 디버깅을 위해 DEBUG 레벨로 설정
+        self.logger.setLevel(logging.DEBUG)
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         os.makedirs(self.config['output_path'], exist_ok=True)
         log_file = os.path.join(self.config['output_path'], 'training.log')
         file_handler = logging.FileHandler(log_file)
         file_handler.setFormatter(formatter)
+        file_handler.setLevel(logging.DEBUG)  # 파일 핸들러도 DEBUG 레벨
         self.logger.addHandler(file_handler)
         stream_handler = logging.StreamHandler()
         stream_handler.setFormatter(formatter)
+        stream_handler.setLevel(logging.INFO)  # 콘솔은 INFO 레벨 유지
         self.logger.addHandler(stream_handler)
 
     def _load_checkpoint(self):
@@ -317,20 +320,46 @@ class Trainer:
         view_dirs = rays_d_train.unsqueeze(0).expand(B, -1, -1)
         
         # Model forward pass
-        outputs = self.model(lidar_points, view_dirs, pts_batch, diffusion_timesteps, scene_timestep)
+        try:
+            outputs = self.model(lidar_points, view_dirs, pts_batch, diffusion_timesteps, scene_timestep)
+        except Exception as e:
+            self.logger.error(f"❌ 모델 forward 실행 중 오류: {e}")
+            self.logger.error(f"   lidar_points shape: {lidar_points.shape}")
+            self.logger.error(f"   view_dirs shape: {view_dirs.shape}")
+            self.logger.error(f"   pts_batch shape: {pts_batch.shape}")
+            self.logger.error(f"   diffusion_timesteps shape: {diffusion_timesteps.shape}")
+            self.logger.error(f"   scene_timestep shape: {scene_timestep.shape}")
+            raise
         
         # Validate outputs
         if not self._validate_model_outputs(outputs, required_keys=['nerf_output']):
             raise ValueError("Model outputs are missing required keys")
         
+        # ✅ NeRF 출력 차원 검증
+        nerf_output = outputs['nerf_output']
+        self.logger.debug(f"📏 NeRF output shape: {nerf_output.shape}")
+        
         # Volumetric rendering - config에서 파라미터 가져오기
-        raw_output = outputs['nerf_output'].squeeze(0)
+        raw_output = nerf_output.squeeze(0)
+        self.logger.debug(f"📏 Raw output shape after squeeze: {raw_output.shape}")
+        
+        # 차원 검증: raw_output은 (N_rays, N_samples, 4) 형태여야 함
+        if raw_output.dim() != 3 or raw_output.shape[-1] != 4:
+            raise ValueError(f"❌ Raw output 차원 오류: expected (N_rays, N_samples, 4), got {raw_output.shape}")
+        
         rendering_config = self.config.get('rendering', {})
-        rgb_map, depth_map, acc_map, disp_map = volume_render(
-            raw_output, z_vals, rays_d_train, 
-            raw_noise_std=rendering_config.get('raw_noise_std', 0.1),
-            white_bkgd=rendering_config.get('white_background', False)
-        )
+        try:
+            rgb_map, depth_map, acc_map, disp_map = volume_render(
+                raw_output, z_vals, rays_d_train, 
+                raw_noise_std=rendering_config.get('raw_noise_std', 0.1),
+                white_bkgd=rendering_config.get('white_background', False)
+            )
+        except Exception as e:
+            self.logger.error(f"❌ Volume rendering 실행 중 오류: {e}")
+            self.logger.error(f"   raw_output shape: {raw_output.shape}")
+            self.logger.error(f"   z_vals shape: {z_vals.shape}")
+            self.logger.error(f"   rays_d_train shape: {rays_d_train.shape}")
+            raise
         
         # ✅ 설정 기반 loss 가중치 적용
         loss_weights = self.config['training'].get('loss_weights', {
